@@ -2,4 +2,4 @@ streamlit
 pandas
 xlsxwriter
 Pillow 
-streamlit-js-eval
+streamlit-js-eval 
