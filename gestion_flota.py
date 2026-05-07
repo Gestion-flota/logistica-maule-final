@@ -77,13 +77,13 @@ elif opcion == "Panel Administrador":
                 st.dataframe(df_reporte) # Muestra la tabla en pantalla
 
                 # Preparamos el archivo Excel en memoria
-            # --- BOTÓN PARA DESCARGAR EXCEL ---
+         # --- BOTÓN PARA DESCARGAR EXCEL ---
         st.markdown("---")
         try:
             import pandas as pd
             from io import BytesIO
             
-            # Consultamos los datos frescos de la base de datos
+            # Consultamos los datos frescos para el reporte
             query = f"SELECT r.fecha, c.nombre, r.patente, r.guias FROM rutas r JOIN choferes c ON r.chofer_rut = c.rut WHERE r.id_empresa = '{st.session_state.emp_id}'"
             df_excel = pd.read_sql_query(query, conn)
 
@@ -100,9 +100,6 @@ elif opcion == "Panel Administrador":
                 )
         except Exception as e:
             st.error(f"Error al preparar el Excel: {e}")
-            else:
-                st.info("Aún no hay rutas registradas para su empresa.")
-        except Exception as e:
             st.error(f"Error al cargar los datos: {e}")
         if st.button("Cerrar Sesión"): st.session_state.admin_auth = False; st.rerun()
         
