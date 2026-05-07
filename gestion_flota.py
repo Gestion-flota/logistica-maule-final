@@ -87,7 +87,29 @@ elif opcion == "Panel Administrador":
                 with st.expander(f"📅 {r[0]} | Chofer: {r[1]} | Patente: {r[2]}"):
                     st.write(f"**Guías:** {r[3]}")
                     if r[4]: st.image(r[4], caption="Foto de la Guía")
+# --- BOTÓN PARA DESCARGAR EXCEL ---
+        st.markdown("---")
+        try:
+            import pandas as pd
+            from io import BytesIO
+            
+            # Consultamos los datos de esta empresa
+            query = f"SELECT r.fecha, c.nombre, r.patente, r.guias FROM rutas r JOIN choferes c ON r.chofer_rut = c.rut WHERE r.id_empresa = '{st.session_state.emp_id}'"
+            df_excel = pd.read_sql_query(query, conn)
 
+            if not df_excel.empty:
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df_excel.to_excel(writer, index=False, sheet_name='Historial_Rutas')
+                
+                st.download_button(
+                    label="📥 Descargar Historial en Excel",
+                    data=output.getvalue(),
+                    file_name=f"reporte_rutas_{st.session_state.emp_id}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        except Exception as e:
+            st.error(f"Error al preparar el Excel: {e}")
 # --- 3. PORTAL CONDUCTOR (CORRECCIÓN DE CÁMARA) ---
 elif opcion == "Portal Conductor":
     if not st.session_state.chofer_auth:
