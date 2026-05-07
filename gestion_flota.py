@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
+import pandas as pd  # <--- AGREGA ESTA LÍNEA AQUÍ (Línea 3 o 4)
 from datetime import datetime
-
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Gestión de Flota Maule", layout="wide")
 
