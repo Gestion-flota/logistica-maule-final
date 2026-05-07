@@ -66,7 +66,7 @@ elif opcion == "Panel Administrador":
         tab1, tab2 = st.tabs(["👤 Gestión de Choferes", "📋 Reportes con Foto"])
         
         with tab1:
-            st.subheader("Registrar Conductor Nuevo")
+            st.subheader("Registrar Conductor Nuevo") 
             with st.form("add_chofer"):
                 c_nom = st.text_input("Nombre Completo")
                 c_rut = st.text_input("RUT (sin puntos)")
