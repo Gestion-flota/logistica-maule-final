@@ -1,170 +1,76 @@
 import streamlit as st
+import pandas as pd
 import sqlite3
-import pandas as pd  # <--- AGREGA ESTA LÍNEA AQUÍ (Línea 3 o 4)
 from datetime import datetime
+from io import BytesIO
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Gestión de Flota Maule", layout="wide")
+# 1. Base de Datos Nacional (Guarda Datos, Fotos y Ubicación)
+conn = sqlite3.connect('logistica_nacional_v4.db', check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS reportes 
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                   fecha TEXT, patente TEXT, detalle TEXT, 
+                   foto BLOB, latitud TEXT, longitud TEXT)''')
+conn.commit()
 
-# --- BASE DE DATOS BLINDADA (v10) ---
-def inicializar_db():
-    conn = sqlite3.connect('entrega_final_v10.db', check_same_thread=False)
-    cursor = conn.cursor()
-    # Tabla de Empresas
-    cursor.execute('CREATE TABLE IF NOT EXISTS empresas (id TEXT PRIMARY KEY, nombre TEXT, clave TEXT)')
-    # Tabla de Choferes
-    cursor.execute('CREATE TABLE IF NOT EXISTS choferes (rut TEXT PRIMARY KEY, nombre TEXT, pin TEXT, id_empresa TEXT)')
-    # Tabla de Rutas con FOTO
-    cursor.execute('''CREATE TABLE IF NOT EXISTS rutas 
-                      (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, chofer_rut TEXT, 
-                       patente TEXT, guias TEXT, id_empresa TEXT, foto_guia BLOB)''')
-    conn.commit()
-    return conn, cursor
+st.set_page_config(page_title="Gestión de Cargas", layout="wide")
+st.title("🚚 Sistema de Control de Cargas y Logística")
+st.markdown("##### Registro de Movimientos para Transportistas")
 
-conn, cursor = inicializar_db()
-
-# --- ESTADO DE SESIÓN ---
-if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
-if 'chofer_auth' not in st.session_state: st.session_state.chofer_auth = False
-
-# --- BARRA LATERAL ---
-st.sidebar.title("🚛 Menú Principal")
-opcion = st.sidebar.radio("Seleccione:", ["Portal Conductor", "Panel Administrador", "Registrar Nueva Empresa"])
-
-# --- 1. REGISTRAR EMPRESA ---
-if opcion == "Registrar Nueva Empresa":
-    st.header("🏗️ Registro de Empresa Cliente")
-    with st.form("registro_emp"):
-        n = st.text_input("Nombre de la Empresa")
-        i = st.text_input("ID de Acceso (ej: arm1)").lower().strip()
-        c = st.text_input("Clave Maestra", type="password")
-        if st.form_submit_button("Crear Plataforma"):
-            if n and i and c:
-                try:
-                    cursor.execute("INSERT INTO empresas VALUES (?,?,?)", (i, n, c))
-                    conn.commit()
-                    st.success(f"✅ Empresa '{n}' creada. ID: {i}")
-                except: st.error("❌ El ID ya existe.")
-            else: st.warning("Complete todos los campos.")
-
-# --- 2. PANEL ADMINISTRADOR ---
-elif opcion == "Panel Administrador":
-    if not st.session_state.admin_auth:
-        st.header("🔑 Acceso Dueño")
-        user_admin = st.text_input("ID Empresa")
-        pass_admin = st.text_input("Contraseña", type="password")
-        if st.button("Ingresar al Panel"):
-            res = cursor.execute("SELECT nombre FROM empresas WHERE id=? AND clave=?", (user_admin, pass_admin)).fetchone()
-            if res:
-                st.session_state.admin_auth = True
-                st.session_state.emp_id = user_admin
-                st.rerun()
-            else: st.error("❌ Credenciales incorrectas.")
-    else:
-        st.header(f"📊 Panel de Control: {st.session_state.emp_id.upper()}")
-        # --- CÓDIGO PARA DESCARGAR EXCEL ---
-       
-        from io import BytesIO
-
-        try:
-            # Conectamos a la base de datos para sacar las rutas de ESTA empresa
-            # Filtramos por el ID de la empresa para que el dueño solo vea lo suyo
-            query = f"SELECT * FROM Rutas WHERE empresa_id = '{st.session_state.emp_id}'"
-            df_reporte = pd.read_sql_query(query, conn)
-
-            if not df_reporte.empty:
-                st.write("Registros de su flota:")
-                st.dataframe(df_reporte) # Muestra la tabla en pantalla
-
-                # Preparamos el archivo Excel en memoria
-         # --- BOTÓN PARA DESCARGAR EXCEL ---
-        st.markdown("---")
-        try:
-            import pandas as pd
-            from io import BytesIO
+# 2. Formulario para el Conductor
+with st.form("registro_nacional", clear_on_submit=True):
+    st.subheader("📸 Captura de Guía de Despacho")
+    st.info("Al presionar el botón de abajo, use la cámara trasera para fotografiar el documento.")
+    
+    # Cámara integrada
+    foto = st.camera_input("Fotografiar Documento")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        patente = st.text_input("Patente del Camión").upper()
+    with col2:
+        # Coordenadas por defecto (Linares) para evitar errores de permisos GPS
+        lat, lon = "-35.8406", "-71.5932" 
+    
+    detalle = st.text_area("Detalles de la Carga / Observaciones")
+    
+    boton = st.form_submit_button("🚀 ENVIAR REPORTE AL SISTEMA")
+    
+    if boton:
+        if patente and detalle and foto:
+            fecha_ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            # Procesar foto para guardarla
+            img_bytes = foto.getvalue()
             
-            # Consultamos los datos frescos para el reporte
-            query = f"SELECT r.fecha, c.nombre, r.patente, r.guias FROM rutas r JOIN choferes c ON r.chofer_rut = c.rut WHERE r.id_empresa = '{st.session_state.emp_id}'"
-            df_excel = pd.read_sql_query(query, conn)
+            cursor.execute("""INSERT INTO reportes (fecha, patente, detalle, foto, latitud, longitud) 
+                           VALUES (?, ?, ?, ?, ?, ?)""", 
+                           (fecha_ahora, patente, detalle, img_bytes, lat, lon))
+            conn.commit()
+            st.success(f"✅ ¡Éxito! El reporte de la patente {patente} ha sido guardado.")
+            st.balloons()
+        else:
+            st.error("⚠️ Falta información: Debe tomar la foto, escribir la patente y el detalle.")
 
-            if not df_excel.empty:
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_excel.to_excel(writer, index=False, sheet_name='Historial_Rutas')
-                
-                st.download_button(
-                    label="📥 Descargar Historial en Excel",
-                    data=output.getvalue(),
-                    file_name=f"reporte_rutas_{st.session_state.emp_id}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        except Exception as e:
-            st.error(f"Error al preparar el Excel: {e}")
-            st.error(f"Error al cargar los datos: {e}")
-        if st.button("Cerrar Sesión"): st.session_state.admin_auth = False; st.rerun()
-        
-        tab1, tab2 = st.tabs(["👤 Gestión de Choferes", "📋 Reportes con Foto"])
-        
-        with tab1:
-            st.subheader("Registrar Conductor Nuevo")
-            with st.form("add_chofer"):
-                c_nom = st.text_input("Nombre Completo")
-                c_rut = st.text_input("RUT (sin puntos)")
-                c_pin = st.text_input("PIN de 4 dígitos")
-                if st.form_submit_button("Dar de Alta"):
-                    try:
-                        cursor.execute("INSERT INTO choferes VALUES (?,?,?,?)", (c_rut, c_nom, c_pin, st.session_state.emp_id))
-                        conn.commit()
-                        st.success(f"✅ {c_nom} registrado.")
-                    except: st.error("❌ El RUT ya está registrado.")
-        
-        with tab2:
-            st.subheader("Historial de Rutas y Guías")
-            reportes = cursor.execute("""SELECT r.fecha, c.nombre, r.patente, r.guias, r.foto_guia 
-                                      FROM rutas r JOIN choferes c ON r.chofer_rut = c.rut 
-                                      WHERE r.id_empresa=? ORDER BY r.id DESC""", (st.session_state.emp_id,)).fetchall()
-            for r in reportes:
-                with st.expander(f"📅 {r[0]} | Chofer: {r[1]} | Patente: {r[2]}"):
-                    st.write(f"**Guías:** {r[3]}")
-                    if r[4]: st.image(r[4], caption="Foto de la Guía")
+# 3. Panel para los Dueños de Empresa (Control de Cobranza)
+st.markdown("---")
+st.subheader("📊 Historial de Servicios y Descarga de Planilla")
 
-# --- 3. PORTAL CONDUCTOR (CORRECCIÓN DE CÁMARA) ---
-elif opcion == "Portal Conductor":
-    if not st.session_state.chofer_auth:
-        st.header("🚚 Portal de Conductores")
-        c_id_e = st.text_input("ID Empresa")
-        c_rut = st.text_input("Tu RUT")
-        c_pin = st.text_input("Tu PIN", type="password")
-        if st.button("Validar Datos"):
-            res = cursor.execute("SELECT nombre FROM choferes WHERE rut=? AND pin=? AND id_empresa=?", (c_rut, c_pin, c_id_e)).fetchone()
-            if res:
-                st.session_state.chofer_auth = True
-                st.session_state.chofer_nom = res[0]
-                st.session_state.chofer_rut = c_rut
-                st.session_state.chofer_emp = c_id_e
-                st.rerun()
-            else: st.error("❌ No reconocido. Revisa ID Empresa, RUT o PIN.")
-    else:
-        st.subheader(f"Bienvenido, {st.session_state.chofer_nom}")
-        if st.button("Cambiar Usuario / Salir"): st.session_state.chofer_auth = False; st.rerun()
-        
-        st.divider()
-        st.info("📷 **PASO 1:** Toma la foto de la guía primero.")
-        # LA CÁMARA ESTÁ FUERA DEL FORMULARIO PARA EVITAR QUE SE OCULTE
-        foto = st.camera_input("Capturar Guía de Despacho")
-        
-        st.divider()
-        st.info("✍️ **PASO 2:** Completa los datos del camión.")
-        with st.form("envio_final", clear_on_submit=True):
-            pat = st.text_input("Patente del Camión")
-            gui = st.text_area("Detalle de las Guías")
-            
-            if st.form_submit_button("🚀 ENVIAR REPORTE AL DUEÑO"):
-                if pat and gui and foto:
-                    cursor.execute("INSERT INTO rutas (fecha, chofer_rut, patente, guias, id_empresa, foto_guia) VALUES (?,?,?,?,?,?)",
-                                   (datetime.now().strftime("%d/%m/%Y %H:%M"), st.session_state.chofer_rut, pat, gui, st.session_state.chofer_emp, foto.getvalue()))
-                    conn.commit()
-                    st.balloons()
-                    st.success("¡Reporte enviado con éxito!")
-                else:
-                    st.error("⚠️ Debes tomar la foto Y completar los campos de texto.")
+# Consultamos los datos (sin la foto para que la tabla sea rápida)
+df = pd.read_sql_query("SELECT fecha as 'Fecha', patente as 'Camión', detalle as 'Detalle Guías' FROM reportes", conn)
+
+if not df.empty:
+    st.dataframe(df, use_container_width=True)
+    
+    # Generador de Excel automático
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Reporte_Cobranza')
+    
+    st.download_button(
+        label="📥 DESCARGAR EXCEL PARA COBRANZA",
+        data=output.getvalue(),
+        file_name=f"reporte_logistica_{datetime.now().strftime('%d_%m')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+else:
+    st.write("Aún no hay registros en el sistema nacional.")
