@@ -4,89 +4,107 @@ import sqlite3
 from datetime import datetime
 from io import BytesIO
 
-# 1. Base de Datos con Separación por Empresa
-conn = sqlite3.connect('logistica_nacional_segura.db', check_same_thread=False)
+# 1. Base de Datos Integral
+conn = sqlite3.connect('logistica_nacional_v6.db', check_same_thread=False)
 cursor = conn.cursor()
+# Tabla de Viajes
 cursor.execute('''CREATE TABLE IF NOT EXISTS reportes 
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id TEXT, fecha TEXT, 
-                   chofer TEXT, patente TEXT, detalle TEXT, foto BLOB, ubicacion TEXT)''')
+                   conductor TEXT, patente TEXT, detalle TEXT, foto BLOB, gps TEXT)''')
+# Tabla de Empresas (Aquí es donde se "crean")
 cursor.execute('''CREATE TABLE IF NOT EXISTS empresas 
-                  (codigo TEXT PRIMARY KEY, nombre TEXT)''')
+                  (pin TEXT PRIMARY KEY, nombre TEXT, ciudad TEXT)''')
 conn.commit()
 
 st.set_page_config(page_title="Logística Pro Chile", layout="wide")
 
-# --- MENÚ LATERAL ---
-st.sidebar.title("🚚 Panel de Control")
-rol = st.sidebar.radio("Seleccione su Rol:", ["👨‍✈️ Chofer (En Ruta)", "🏢 Administración (Dueños)"])
+# --- MENÚ LATERAL PROFESIONAL ---
+st.sidebar.title("🎮 Centro de Control")
+rol = st.sidebar.radio("Seleccione Perfil:", 
+                       ["🚚 Conductor en Ruta", "📊 Administrador de Flota", "🔑 Configuración Master"])
 
-# --- VISTA DEL CHOFER ---
-if rol == "👨‍✈️ Chofer (En Ruta)":
-    st.title("Sistema de Registro para Conductores")
+# --- MODULO 3: CONFIGURACIÓN MASTER (Para que tú crees las empresas) ---
+if rol == "🔑 Configuración Master":
+    st.title("Creación de Nuevos Clientes")
+    st.info("Aquí es donde tú registras a las empresas antes de entregarles el servicio.")
     
-    with st.form("form_chofer", clear_on_submit=True):
-        st.subheader("📝 Datos del Viaje")
-        # Primero los datos, luego la cámara
-        nombre_chofer = st.text_input("Nombre Completo del Conductor")
-        patente = st.text_input("Patente del Camión").upper()
-        codigo_empresa = st.text_input("Código de su Empresa (Entregado por su jefe)")
+    with st.form("crear_empresa"):
+        nom_emp = st.text_input("Nombre de la Empresa (ej: Transportes Cáceres)")
+        pin_emp = st.text_input("Asignar PIN de Acceso (4 o 6 dígitos)")
+        ciu_emp = st.text_input("Ciudad Base")
+        if st.form_submit_button("✅ REGISTRAR EMPRESA CLIENTE"):
+            if nom_emp and pin_emp:
+                try:
+                    cursor.execute("INSERT INTO empresas VALUES (?, ?, ?)", (pin_emp, nom_emp, ciu_emp))
+                    conn.commit()
+                    st.success(f"Empresa '{nom_emp}' creada. Ya pueden usar el PIN: {pin_emp}")
+                except:
+                    st.error("Ese PIN ya está en uso. Elige otro.")
+
+# --- MODULO 1: VISTA DEL CONDUCTOR ---
+elif rol == "🚚 Conductor en Ruta":
+    st.title("Registro de Movimiento")
+    
+    with st.form("form_conductor", clear_on_submit=True):
+        st.subheader("📝 Datos del Servicio")
+        nom_cond = st.text_input("Nombre del Conductor")
+        pat_camion = st.text_input("Patente del Camión").upper()
+        pin_verif = st.text_input("Código de Empresa", help="Solicite el código a su central")
         
         st.markdown("---")
         st.subheader("📸 Documentación")
-        foto = st.camera_input("Fotografiar Guía de Despacho (Cámara Trasera)")
+        foto_g = st.camera_input("Fotografiar Guía")
+        det_carga = st.text_area("Observaciones del Viaje")
         
-        detalle = st.text_area("Notas / Detalles de la Carga")
-        
-        if st.form_submit_button("🚀 ENVIAR REPORTE"):
-            if nombre_chofer and patente and codigo_empresa and foto:
-                fecha_ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
-                # Simulamos GPS (Coordenadas de Linares o ruta)
-                gps = "-35.8406, -71.5932" 
-                
-                cursor.execute("""INSERT INTO reportes (empresa_id, fecha, chofer, patente, detalle, foto, ubicacion) 
+        if st.form_submit_button("🚀 FINALIZAR Y ENVIAR"):
+            # Verificamos si el PIN existe
+            cursor.execute("SELECT nombre FROM empresas WHERE pin = ?", (pin_verif,))
+            empresa_existe = cursor.fetchone()
+            
+            if empresa_existe and foto_g:
+                ahora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                loc_gps = "-35.8406, -71.5932" # GPS simulado activo
+                cursor.execute("""INSERT INTO reportes (empresa_id, fecha, conductor, patente, detalle, foto, gps) 
                                VALUES (?, ?, ?, ?, ?, ?, ?)""", 
-                               (codigo_empresa, fecha_ahora, nombre_chofer, patente, detalle, foto.getvalue(), gps))
+                               (pin_verif, ahora, nom_cond, pat_camion, det_carga, foto_g.getvalue(), loc_gps))
                 conn.commit()
-                st.success(f"✅ Reporte enviado para la empresa {codigo_empresa}")
+                st.success(f"Enviado a central: {empresa_existe[0]}")
                 st.balloons()
             else:
-                st.error("⚠️ Error: Debe completar todos los datos y tomar la foto.")
+                st.error("PIN de empresa inválido o falta fotografía.")
 
-# --- VISTA DEL DUEÑO (CON CLAVE DE EMPRESA) ---
+# --- MODULO 2: VISTA DEL ADMINISTRADOR ---
 else:
-    st.title("🔒 Acceso a Administración")
-    clave_acceso = st.text_input("Ingrese su Código de Empresa para ver reportes", type="password")
+    st.title("🔒 Acceso Administración")
+    pin_ingreso = st.text_input("Ingrese PIN de Empresa", type="password")
     
-    if clave_acceso:
-        st.success(f"Panel de Control: Empresa {clave_acceso}")
-        tab1, tab2 = st.tabs(["📊 Reportes y Excel", "📍 Ubicación GPS"])
+    if pin_ingreso:
+        cursor.execute("SELECT nombre FROM empresas WHERE pin = ?", (pin_ingreso,))
+        datos_emp = cursor.fetchone()
         
-        with tab1:
-            # Solo filtramos los datos de ESA empresa
-            query = "SELECT fecha, chofer, patente, detalle, ubicacion FROM reportes WHERE empresa_id = ?"
-            df = pd.read_sql_query(query, conn, params=(clave_acceso,))
+        if datos_emp:
+            st.success(f"🏢 Panel Profesional: {datos_emp[0]}")
             
-            if not df.empty:
-                st.subheader("Historial de Viajes Registrados")
-                st.dataframe(df, use_container_width=True)
+            t1, t2 = st.tabs(["📊 Reportes y Excel", "📍 Geolocalización"])
+            
+            with t1:
+                query = "SELECT fecha, conductor, patente, detalle, gps FROM reportes WHERE empresa_id = ?"
+                df = pd.read_sql_query(query, conn, params=(pin_ingreso,))
                 
-                # Botón de Excel Directo
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Cobranza_Mes')
-                
-                st.download_button(
-                    label="📥 DESCARGAR EXCEL PARA COBRANZA",
-                    data=output.getvalue(),
-                    file_name=f"reporte_{clave_acceso}_{datetime.now().strftime('%m_%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.info("No hay viajes registrados para este código de empresa.")
-        
-        with tab2:
-            st.subheader("Mapa de Últimos Movimientos")
-            if not df.empty:
-                st.write("Coordenadas registradas de los últimos servicios:")
-                st.table(df[['patente', 'ubicacion']])
-                st.info("Aquí se integrará el mapa visual en el siguiente paso.")
+                if not df.empty:
+                    st.dataframe(df, use_container_width=True)
+                    # Excel
+                    out = BytesIO()
+                    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
+                        df.to_excel(wr, index=False, sheet_name='Viajes')
+                    st.download_button("📥 DESCARGAR REPORTE MENSUAL (EXCEL)", out.getvalue(), f"reporte_{datos_emp[0]}.xlsx")
+                else:
+                    st.info("Sin registros para esta flota.")
+            
+            with t2:
+                st.subheader("Seguimiento de Rutas")
+                st.write("Última ubicación capturada por cada conductor:")
+                if not df.empty:
+                    st.table(df[['conductor', 'patente', 'gps']])
+        else:
+            st.error("PIN no reconocido en el sistema nacional.")
