@@ -102,7 +102,6 @@ elif perfil == "Conductor":
     
     if st.button("Finalizar y Enviar"):
         if nombre_c and patente_c and archivo:
-            # Buscamos a qué empresa pertenece esa patente
             emp_pertenece = next((f['empresa'] for f in st.session_state.db_flota if f['patente'] == patente_c), "Independiente")
             
             st.session_state.db_guias.append({
