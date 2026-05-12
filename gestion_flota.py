@@ -1,112 +1,79 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
-from sqlmodel import Field, SQLModel, create_engine, Session, select
-from typing import Optional
+from datetime import datetime
+from streamlit_js_eval import streamlit_js_eval # Para el GPS real
+
+st.set_page_config(page_title="Sistema Logístico Real", layout="centered")
 
 # --- BASE DE DATOS ---
-class Usuario(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    codigo_acceso: str = Field(unique=True)
-    pin: str
-    nombre_empresa: str
-    rol: str # 'admin_general', 'transportista', 'conductor'
+if 'db_flota' not in st.session_state:
+    st.session_state.db_flota = [] 
+if 'db_guias' not in st.session_state:
+    st.session_state.db_guias = []
 
-class Equipo(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    empresa: str
-    conductor: str
-    patente: str = Field(unique=True)
-    pin_conductor: str
-    detalle: str
-    gps: str = "Pendiente"
+# --- MENU LATERAL ---
+st.sidebar.title("🚚 ACCESO")
+perfil = st.sidebar.selectbox("¿Quién ingresa?", ["Seleccione...", "Transportista", "Conductor", "Dueño App"])
 
-sqlite_url = "sqlite:///plataforma_final.db"
-engine = create_engine(sqlite_url)
-SQLModel.metadata.create_all(engine)
+# --- VISTA TRANSPORTISTA ---
+if perfil == "Transportista":
+    st.title("🏢 Panel del Transportista")
+    emp = st.text_input("Nombre de su Empresa")
+    if st.button("Ingresar"):
+        st.session_state['login_exitoso'] = emp
 
-# Crear tu acceso de dueño (CÁMBIALO AQUÍ SI QUIERES)
-with Session(engine) as session:
-    if not session.exec(select(Usuario).where(Usuario.rol == "admin_general")).first():
-        session.add(Usuario(codigo_acceso="dueño123", pin="2024", nombre_empresa="SaaS Master", rol="admin_general"))
-        session.commit()
+    if 'login_exitoso' in st.session_state:
+        t1, t2 = st.tabs(["➕ Registrar Equipo", "📋 Ver Guías Recibidas"])
+        with t1:
+            p = st.text_input("Patente").upper()
+            c = st.text_input("Nombre Conductor")
+            if st.button("Guardar"):
+                st.session_state.db_flota.append({"empresa": emp, "patente": p, "conductor": c})
+                st.success("Registrado")
+        with t2:
+            mis_guias = [g for g in st.session_state.db_guias if g['empresa'] == emp]
+            if mis_guias: st.dataframe(pd.DataFrame(mis_guias))
 
-st.set_page_config(page_title="Gestión de Flota Pro", layout="wide")
-if 'auth' not in st.session_state: st.session_state.auth = None
-
-# --- LOGIN ÚNICO ---
-def login():
-    st.title("🚚 Portal Logístico")
-    st.info("Ingrese su Código/Patente y PIN")
-    with st.form("login"):
-        user_in = st.text_input("Usuario / Patente")
-        pin_in = st.text_input("PIN", type="password")
-        if st.form_submit_button("Entrar"):
-            with Session(engine) as session:
-                # 1. Buscar en Usuarios (Dueño o Empresario)
-                u = session.exec(select(Usuario).where(Usuario.codigo_acceso == user_in, Usuario.pin == pin_in)).first()
-                if u:
-                    st.session_state.auth = {"data": u, "tipo": u.rol}
-                    st.rerun()
-                # 2. Buscar en Equipos (Conductores)
-                c = session.exec(select(Equipo).where(Equipo.patente == user_in, Equipo.pin_conductor == pin_in)).first()
-                if c:
-                    st.session_state.auth = {"data": c, "tipo": "conductor"}
-                    st.rerun()
-                st.error("Acceso denegado.")
-
-# --- PANEL DUEÑO (TÚ) ---
-def panel_dueño():
-    st.header("💎 Administración Global")
-    with st.expander("➕ Crear Nueva Empresa Cliente"):
-        with st.form("c_emp"):
-            n = st.text_input("Nombre Empresa")
-            c = st.text_input("Código Acceso")
-            p = st.text_input("PIN")
-            if st.form_submit_button("Dar de Alta"):
-                with Session(engine) as session:
-                    session.add(Usuario(codigo_acceso=c, pin=p, nombre_empresa=n, rol="transportista"))
-                    session.commit()
-                st.success("Empresa creada.")
-
-# --- PANEL TRANSPORTISTA (EMPRESARIO) ---
-def panel_transportista():
-    emp = st.session_state.auth["data"].nombre_empresa
-    st.header(f"🏢 Gestión de Flota: {emp}")
-    tab1, tab2 = st.tabs(["📋 Mi Flota", "➕ Registrar Conductor"])
+# --- VISTA CONDUCTOR (CON GPS REAL) ---
+elif perfil == "Conductor":
+    st.title("📸 Finalizar Viaje")
     
-    with tab2:
-        with st.form("add"):
-            c1, c2, c3 = st.columns(3)
-            cond = c1.text_input("Nombre Chofer")
-            pat = c2.text_input("Patente")
-            p_c = c3.text_input("PIN para Chofer (4 dígitos)")
-            det = st.text_area("Detalles de Ruta")
-            if st.form_submit_button("Registrar Equipo"):
-                with Session(engine) as session:
-                    session.add(Equipo(empresa=emp, conductor=cond, patente=pat, pin_conductor=p_c, detalle=det))
-                    session.commit()
-                st.success("Registrado.")
-
-# --- PANEL CONDUCTOR (SIMPLIFICADO) ---
-def panel_conductor():
-    datos = st.session_state.auth["data"]
-    st.title("🚛 Modo Conductor")
-    st.header(f"Bienvenido, {datos.conductor}")
-    st.subheader(f"Camión: {datos.patente}")
-    st.info(f"**Tu Ruta/Carga:** {datos.detalle}")
-    if st.button("📍 Compartir mi ubicación actual"):
-        st.success("Ubicación enviada al sistema (Simulado)")
-
-# --- LÓGICA DE NAVEGACIÓN ---
-if st.session_state.auth:
-    if st.sidebar.button("Salir"):
-        st.session_state.auth = None
-        st.rerun()
+    # 📍 CAPTURA DE GPS AUTOMÁTICA
+    loc = streamlit_js_eval(data_of='get_location', key='get_loc')
     
-    tipo = st.session_state.auth["tipo"]
-    if tipo == "admin_general": panel_dueño()
-    elif tipo == "transportista": panel_transportista()
-    elif tipo == "conductor": panel_conductor()
-else:
-    login()
+    nom = st.text_input("Su Nombre")
+    pat = st.text_input("Patente").upper()
+    
+    # El botón 'Upload' abrirá la cámara en celulares
+    archivo = st.file_uploader("Presione para sacar foto a la Guía", type=['jpg', 'jpeg', 'png'])
+    
+    if st.button("ENVIAR Y TERMINAR"):
+        if nom and pat and archivo and loc:
+            lat = loc['coords']['latitude']
+            lon = loc['coords']['longitude']
+            
+            # Buscamos empresa
+            emp_p = next((i['empresa'] for i in st.session_state.db_flota if i['patente'] == pat), "Independiente")
+            
+            st.session_state.db_guias.append({
+                "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "empresa": emp_p,
+                "conductor": nom,
+                "patente": pat,
+                "ubicacion": f"Lat: {lat}, Lon: {lon}",
+                "google_maps": f"https://www.google.com/maps?q={lat},{lon}"
+            })
+            st.success("✅ Guía y GPS enviados correctamente.")
+        elif not loc:
+            st.error("⚠️ Debe permitir el acceso al GPS en su celular para continuar.")
+        else:
+            st.error("Complete todos los datos.")
+
+# --- VISTA DUEÑO APP ---
+elif perfil == "Dueño App":
+    st.title("💎 Vista Global")
+    if st.session_state.db_flota:
+        st.write("### Resumen de Camiones por Empresa")
+        st.table(pd.DataFrame(st.session_state.db_flota)['empresa'].value_counts())
+    else:
+        st.info("No hay datos.")
