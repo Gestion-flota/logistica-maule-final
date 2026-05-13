@@ -104,24 +104,68 @@ elif perfil == "Conductor":
             })
             st.success(f"Guía enviada con éxito a {emp}.")
 
-# --- VISTA: ADMINISTRADOR (TU PANEL PARA VER TODO) ---
+# --- VISTA: ADMINISTRADOR (MAESTRO) ---
 elif perfil == "Administrador de la App":
-    st.title("🛡️ Panel Maestro")
-    c_maestra = st.text_input("Clave Maestra", type="password")
+    st.title("🛡️ Panel Maestro de Control")
     
-    if c_maestra == st.session_state.admin_pass:
-        st.session_state.admin_auth = True
-        tab_a, tab_b = st.tabs(["👥 Usuarios", "🚛 Flotas Globales"])
+    # Sistema de Login con Recuperación
+    if not st.session_state.get('admin_auth', False):
+        c_adm = st.text_input("Clave Maestra", type="password")
+        col_btn1, col_btn2 = st.columns([1, 3])
         
-        with tab_a:
-            st.write("### Claves de Empresas")
-            st.json(st.session_state.db_usuarios)
-            
-        with tab_b:
-            st.write("### Todos los Camiones Registrados")
-            if st.session_state.db_flota:
-                st.table(pd.DataFrame(st.session_state.db_flota))
+        with col_btn1:
+            if st.button("🔓 Entrar"):
+                if c_adm == st.session_state.admin_pass:
+                    st.session_state.admin_auth = True
+                    st.rerun()
+                else:
+                    st.error("Clave incorrecta")
+        
+        with col_btn2:
+            with st.expander("🆘 Olvidé mi clave / Cambiar clave"):
+                st.write("Responda la pregunta de seguridad para gestionar su clave.")
+                # LLAVE DE EMERGENCIA: linares
+                pregunta = st.text_input("¿Cuál es su ciudad secreta?")
+                if pregunta.lower() == "linares": 
+                    st.info(f"Su clave actual es: **{st.session_state.admin_pass}**")
+                    nueva_m = st.text_input("Nueva Clave Maestra", type="password")
+                    if st.button("Actualizar Clave Maestra"):
+                        st.session_state.admin_pass = nueva_m
+                        st.success("Clave actualizada con éxito.")
+    
+    # Panel de Control una vez autenticado
+    else:
+        st.success("Modo Administrador Activo")
+        tab_users, tab_global_flota = st.tabs(["👥 Usuarios y Claves", "📊 Resumen de Flotas"])
+        
+        with tab_users:
+            st.subheader("Control de Accesos")
+            if st.session_state.db_usuarios:
+                data_users = []
+                for emp, info in st.session_state.db_usuarios.items():
+                    data_users.append({"Empresa": emp.upper(), "Contraseña": info['clave'], "Contacto": info['correo']})
+                st.table(pd.DataFrame(data_users))
             else:
-                st.info("No hay camiones en la base de datos.")
-    elif c_maestra != "":
-        st.error("Clave maestra incorrecta.")
+                st.info("No hay empresas registradas.")
+
+        with tab_global_flota:
+            st.subheader("Resumen de Camiones por Empresa")
+            if st.session_state.db_flota:
+                df_f = pd.DataFrame(st.session_state.db_flota)
+                
+                # RESUMEN DE CANTIDADES (Lo que te interesa)
+                resumen = df_f['empresa'].value_counts().reset_index()
+                resumen.columns = ['Empresa', 'Cantidad de Camiones']
+                
+                st.write("### Conteo General")
+                st.dataframe(resumen, use_container_width=True)
+                
+                with st.expander("🔍 Ver detalle de patentes"):
+                    st.table(df_f[['empresa', 'patente']])
+            else:
+                st.info("Aún no hay camiones registrados.")
+        
+        st.divider()
+        if st.button("Cerrar Sesión"):
+            st.session_state.admin_auth = False
+            st.rerun()
