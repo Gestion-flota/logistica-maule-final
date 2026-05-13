@@ -4,119 +4,149 @@ from datetime import datetime
 import io
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Logística Maule Segura", layout="wide")
+st.set_page_config(page_title="Logística Maule v3", layout="wide")
 
-# Inicialización de bases de datos en memoria
-if 'admin_password' not in st.session_state: st.session_state['admin_password'] = "linares2026"
-if 'admin_auth' not in st.session_state: st.session_state['admin_auth'] = False
-if 'db_usuarios' not in st.session_state: st.session_state.db_usuarios = {} # {nombre_empresa: {'clave': p, 'correo': c}}
+# Bases de datos temporales
+if 'db_usuarios' not in st.session_state: st.session_state.db_usuarios = {} 
 if 'db_flota' not in st.session_state: st.session_state.db_flota = [] 
 if 'db_guias' not in st.session_state: st.session_state.db_guias = []
+if 'admin_pass' not in st.session_state: st.session_state.admin_pass = "linares2026"
+if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
 
 # --- MENÚ LATERAL ---
-st.sidebar.title("🚚 SISTEMA LOGÍSTICO")
-perfil = st.sidebar.selectbox("Seleccione Perfil", ["Inicio", "Transportista", "Conductor", "Administrador de la App"])
+st.sidebar.title("🚚 MENÚ PRINCIPAL")
+perfil = st.sidebar.selectbox("Seleccione su Perfil", ["Inicio", "Transportista", "Conductor", "Administrador de la App"])
 
-# --- VISTA: TRANSPORTISTA (CON CLAVE INDIVIDUAL) ---
-if perfil == "Transportista":
-    st.title("🏢 Acceso Privado para Transportistas")
-    empresa_nom = st.text_input("Nombre de la Empresa").strip().lower()
+# --- VISTA: INICIO (PANTALLA NO NEGRA) ---
+if perfil == "Inicio":
+    st.title("🚛 Sistema de Gestión Logística Maule")
+    st.info("Bienvenido al centro de control. Por favor, seleccione su rol en el menú de la izquierda para comenzar.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.subheader("Transportistas")
+        st.write("Gestione su flota, revise sus guías y descargue reportes en Excel.")
+    with col2:
+        st.subheader("Conductores")
+        st.write("Envíe fotos de sus guías de despacho de forma rápida y segura.")
+    with col3:
+        st.subheader("Administración")
+        st.write("Control total de usuarios y seguridad del sistema.")
+
+# --- VISTA: TRANSPORTISTA (SEGURIDAD REFORZADA) ---
+elif perfil == "Transportista":
+    st.title("🏢 Panel Privado de Transportes")
+    
+    empresa_nom = st.text_input("Ingrese el nombre de su Empresa").strip().lower()
     
     if empresa_nom:
-        # Registro si la empresa es nueva
         if empresa_nom not in st.session_state.db_usuarios:
-            st.warning(f"La empresa '{empresa_nom}' no está registrada.")
-            with st.expander("Registrar mi empresa ahora"):
-                nueva_clave = st.text_input("Defina su clave privada", type="password")
-                correo = st.text_input("Correo electrónico de recuperación")
-                if st.button("Crear Cuenta"):
-                    st.session_state.db_usuarios[empresa_nom] = {'clave': nueva_clave, 'correo': correo}
-                    st.success("Cuenta creada. Ahora ingrese su clave arriba.")
-        
-        # Login si la empresa ya existe
+            st.warning(f"La empresa '{empresa_nom}' no está registrada en el sistema.")
+            with st.expander("📝 Registrar mi empresa ahora"):
+                p1 = st.text_input("Defina su Contraseña Privada", type="password")
+                m1 = st.text_input("Correo electrónico (para recuperación)")
+                if st.button("Finalizar Registro"):
+                    st.session_state.db_usuarios[empresa_nom] = {'clave': p1, 'correo': m1}
+                    st.success("✅ Empresa registrada. Ahora puede ingresar con su clave.")
         else:
-            pass_input = st.text_input("Ingrese su clave privada", type="password")
-            if st.button("Entrar al Panel"):
-                if pass_input == st.session_state.db_usuarios[empresa_nom]['clave']:
-                    st.session_state[f'auth_{empresa_nom}'] = True
-                else:
-                    st.error("Clave incorrecta.")
-
-            # Opción de recuperación
-            with st.expander("¿Olvidó su clave?"):
-                st.info(f"Se enviará un código al correo: {st.session_state.db_usuarios[empresa_nom]['correo']}")
-                if st.button("Recuperar por Correo"):
-                    st.success("Instrucciones enviadas (Simulado)")
-
-        # PANEL UNA VEZ AUTENTICADO
-        if st.session_state.get(f'auth_{empresa_nom}', False):
-            st.success(f"Bienvenido, {empresa_nom.upper()}")
-            t1, t2, t3 = st.tabs(["🚛 Gestión de Flota", "📋 Historial de Guías", "🚪 Salir"])
+            # Pantalla de Login obligatoria
+            pass_check = st.text_input("Contraseña de Empresa", type="password")
+            col_login, col_recup = st.columns([1, 2])
             
-            with t1:
-                pat = st.text_input("Nueva Patente").upper()
-                chofer = st.text_input("Nombre del Chofer")
-                if st.button("Registrar Camión"):
-                    st.session_state.db_flota.append({"empresa": empresa_nom, "patente": pat, "conductor": chofer})
-                    st.success("Camión registrado.")
+            with col_login:
+                if st.button("🔐 Entrar al Panel"):
+                    if pass_check == st.session_state.db_usuarios[empresa_nom]['clave']:
+                        st.session_state[f'active_{empresa_nom}'] = True
+                    else:
+                        st.error("Contraseña incorrecta.")
+            
+            with col_recup:
+                with st.expander("¿Olvidó su clave?"):
+                    st.write(f"Se enviará un enlace al correo: **{st.session_state.db_usuarios[empresa_nom]['correo']}**")
+                    if st.button("Enviar recuperación"):
+                        st.info("Simulación: Correo de recuperación enviado.")
 
-            with t2:
-                mis_guias = [g for g in st.session_state.db_guias if g['empresa'] == empresa_nom]
-                if mis_guias:
-                    df = pd.DataFrame(mis_guias)
-                    st.dataframe(df.drop(columns=['foto_archivo']))
-                    
-                    # Excel con xlsxwriter
+        # CONTENIDO EXCLUSIVO
+        if st.session_state.get(f'active_{empresa_nom}', False):
+            st.divider()
+            st.success(f"Sesión Activa: {empresa_nom.upper()}")
+            menu_t = st.tabs(["📊 Mis Guías", "🚛 Mi Flota", "⚙️ Ajustes", "🚪 Salir"])
+            
+            with menu_t[0]: # Guías
+                mis_g = [g for g in st.session_state.db_guias if g['empresa'] == empresa_nom]
+                if mis_g:
+                    df = pd.DataFrame(mis_g)
+                    st.dataframe(df.drop(columns=['foto']))
+                    # Botón de Excel
                     output = io.BytesIO()
-                    try:
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            df.drop(columns=['foto_archivo']).to_excel(writer, index=False)
-                        st.download_button("📥 Descargar Reporte Excel", output.getvalue(), f"{empresa_nom}.xlsx")
-                    except:
-                        st.error("Error: Ejecuta 'pip install xlsxwriter' en tu terminal.")
-
-                    st.write("### 📸 Ver Foto de Guía")
-                    idx = st.number_input("Número de fila:", 0, len(mis_guias)-1, 0)
-                    if st.button("Visualizar"):
-                        st.image(mis_guias[idx]['foto_archivo'])
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df.drop(columns=['foto']).to_excel(writer, index=False)
+                    st.download_button("📥 Descargar Reporte Excel", output.getvalue(), f"reporte_{empresa_nom}.xlsx")
                 else:
-                    st.info("Aún no tienes guías enviadas por tus conductores.")
+                    st.info("No hay guías enviadas aún.")
 
-            with t3:
-                if st.button("Cerrar Sesión Privada"):
-                    st.session_state[f'auth_{empresa_nom}'] = False
+            with menu_t[1]: # Flota
+                p_camion = st.text_input("Patente").upper()
+                n_chofer = st.text_input("Nombre Chofer")
+                if st.button("Añadir a Flota"):
+                    st.session_state.db_flota.append({"empresa": empresa_nom, "patente": p_camion, "conductor": n_chofer})
+                    st.success("Camión añadido.")
+
+            with menu_t[2]: # Ajustes / Cambio de Clave
+                st.subheader("Cambiar mi Contraseña")
+                nueva = st.text_input("Nueva Clave", type="password")
+                if st.button("Actualizar Clave"):
+                    st.session_state.db_usuarios[empresa_nom]['clave'] = nueva
+                    st.success("Contraseña actualizada con éxito.")
+
+            with menu_t[3]:
+                if st.button("Cerrar Sesión"):
+                    st.session_state[f'active_{empresa_nom}'] = False
                     st.rerun()
 
-# --- VISTA: CONDUCTOR (ACCESO LIBRE) ---
-elif perfil == "Conductor":
-    st.title("🚛 Envío de Guía")
-    patente_c = st.text_input("Patente del Camión").upper()
-    archivo = st.file_uploader("Subir foto de Guía", type=['jpg', 'jpeg', 'png'])
+# --- VISTA: ADMINISTRADOR (CON PREGUNTA DE SEGURIDAD) ---
+elif perfil == "Administrador de la App":
+    st.title("🛡️ Panel Maestro de Control")
     
-    if st.button("Enviar Guía"):
-        if patente_c and archivo:
-            # Buscar empresa a la que pertenece la patente
-            emp = next((f['empresa'] for f in st.session_state.db_flota if f['patente'] == patente_c), "Independiente")
+    if not st.session_state.admin_auth:
+        c_maestra = st.text_input("Clave Maestra", type="password")
+        if st.button("Acceder"):
+            if c_maestra == st.session_state.admin_pass:
+                st.session_state.admin_auth = True
+                st.rerun()
+            else:
+                st.error("Error de acceso.")
+        
+        with st.expander("🆘 Olvidé mi Clave Maestra"):
+            st.write("Responda su pregunta de seguridad:")
+            pregunta = st.text_input("¿Cuál es su ciudad de nacimiento?")
+            if st.button("Validar"):
+                if pregunta.lower() == "linares": # RESPUESTA SECRETA
+                    st.info(f"Su clave maestra es: {st.session_state.admin_pass}")
+    else:
+        st.write("### Gestión Global de Usuarios")
+        st.write(st.session_state.db_usuarios)
+        if st.button("Resetear todo el Sistema"):
+            st.session_state.db_usuarios = {}
+            st.warning("Se han borrado todos los usuarios.")
+        
+        if st.button("Cerrar Sesión"):
+            st.session_state.admin_auth = False
+            st.rerun()
+
+# --- VISTA: CONDUCTOR ---
+elif perfil == "Conductor":
+    st.title("🚛 Envío de Guía de Despacho")
+    pat = st.text_input("Patente del Camión").upper()
+    foto = st.file_uploader("Subir foto", type=['jpg', 'png'])
+    if st.button("Enviar Datos"):
+        if pat and foto:
+            # Buscar empresa
+            emp = next((f['empresa'] for f in st.session_state.db_flota if f['patente'] == pat), "Sin Empresa")
             st.session_state.db_guias.append({
                 "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
                 "empresa": emp,
-                "patente": patente_c,
-                "foto_archivo": archivo.read()
+                "patente": pat,
+                "foto": foto.read()
             })
-            st.success(f"Guía enviada a {emp}. ¡Buen viaje!")
-
-# --- VISTA: ADMINISTRADOR (TU PANEL) ---
-elif perfil == "Administrador de la App":
-    st.title("🛡️ Panel Maestro")
-    if not st.session_state['admin_auth']:
-        adm_pass = st.text_input("Clave Maestra", type="password")
-        if st.button("Acceder"):
-            if adm_pass == st.session_state['admin_password']:
-                st.session_state['admin_auth'] = True
-                st.rerun()
-    else:
-        st.write("### Control Total de Usuarios")
-        st.write(st.session_state.db_usuarios) # Aquí puedes ver todas las claves si alguien la olvida
-        if st.button("Cerrar Sesión"):
-            st.session_state['admin_auth'] = False
-            st.rerun()
+            st.success("Guía enviada correctamente.")
