@@ -3,10 +3,10 @@ import pandas as pd
 from datetime import datetime
 import io
 
-# --- CONFIGURACIÓN INICIAL ---
-st.set_page_config(page_title="Logística Maule PRO", layout="wide")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Logística Maule Sistema", layout="wide")
 
-# Bases de datos temporales (Se mantienen mientras la app esté corriendo)
+# Bases de datos temporales
 if 'db_usuarios' not in st.session_state: st.session_state.db_usuarios = {} 
 if 'db_flota' not in st.session_state: st.session_state.db_flota = [] 
 if 'db_guias' not in st.session_state: st.session_state.db_guias = []
@@ -14,89 +14,87 @@ if 'admin_pass' not in st.session_state: st.session_state.admin_pass = "linares2
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
 
 # --- MENÚ LATERAL ---
-st.sidebar.title("🚚 MENÚ PRINCIPAL")
-perfil = st.sidebar.selectbox("Seleccione su Perfil", ["Inicio", "Transportista", "Conductor", "Administrador de la App"])
+st.sidebar.title("🚚 SISTEMA LOGÍSTICO")
+perfil = st.sidebar.selectbox("Seleccione Perfil", ["Inicio", "Transportista", "Conductor", "Administrador de la App"])
 
 # --- VISTA: INICIO ---
 if perfil == "Inicio":
-    st.title("🚛 Sistema Logístico Maule")
-    st.info("Bienvenido. Use el menú lateral para ingresar según su rol.")
-    st.write("---")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Para Empresas")
-        st.write("Registre su flota y controle sus guías de despacho con reportes en Excel.")
-    with c2:
-        st.subheader("Para Choferes")
-        st.write("Envíe fotos de sus guías al instante desde cualquier lugar.")
+    st.title("🚛 Bienvenido al Sistema Logístico")
+    st.info("Seleccione su perfil para comenzar a trabajar.")
 
-# --- VISTA: TRANSPORTISTA ---
+# --- VISTA: TRANSPORTISTA (RECUPERADA Y MEJORADA) ---
 elif perfil == "Transportista":
-    st.title("🏢 Panel de Transportes")
-    empresa_nom = st.text_input("Nombre de su Empresa").strip().lower()
+    st.title("🏢 Panel de Control - Empresa")
+    empresa_nom = st.text_input("Nombre de la Empresa").strip().lower()
     
     if empresa_nom:
+        # Si no existe, se registra
         if empresa_nom not in st.session_state.db_usuarios:
             st.warning(f"La empresa '{empresa_nom}' no está registrada.")
-            with st.expander("📝 Registrar mi empresa"):
-                p1 = st.text_input("Defina su Contraseña", type="password")
-                m1 = st.text_input("Correo de contacto")
-                if st.button("Crear Cuenta"):
+            with st.expander("📝 Registrar mi empresa ahora"):
+                p1 = st.text_input("Defina su Clave", type="password")
+                m1 = st.text_input("Correo electrónico")
+                if st.button("Finalizar Registro"):
                     st.session_state.db_usuarios[empresa_nom] = {'clave': p1, 'correo': m1}
-                    st.success("Cuenta creada. Ahora ingrese su clave arriba.")
+                    st.success("Registrado. Ingrese su clave arriba.")
         else:
-            pass_check = st.text_input("Contraseña de Acceso", type="password")
-            if st.button("🔓 Entrar"):
+            # Login obligatorio
+            pass_check = st.text_input("Contraseña", type="password")
+            if st.button("Entrar al Sistema"):
                 if pass_check == st.session_state.db_usuarios[empresa_nom]['clave']:
                     st.session_state[f'active_{empresa_nom}'] = True
                 else:
                     st.error("Clave incorrecta.")
             
-            with st.expander("🆘 Olvidé mi contraseña"):
-                correo_val = st.text_input("Ingrese su correo registrado")
-                if correo_val == st.session_state.db_usuarios[empresa_nom]['correo']:
-                    st.success("Correo verificado.")
-                    nueva_p = st.text_input("Nueva contraseña", type="password")
-                    if st.button("Cambiar y Entrar"):
-                        st.session_state.db_usuarios[empresa_nom]['clave'] = nueva_p
-                        st.session_state[f'active_{empresa_nom}'] = True
-                        st.rerun()
+            # Recuperación
+            with st.expander("🆘 Olvidé mi clave"):
+                c_val = st.text_input("Correo registrado")
+                if c_val == st.session_state.db_usuarios[empresa_nom]['correo']:
+                    st.info(f"Su clave es: {st.session_state.db_usuarios[empresa_nom]['clave']}")
 
+        # CONTENIDO QUE HABÍAMOS PERDIDO (Excel y Flota)
         if st.session_state.get(f'active_{empresa_nom}', False):
-            st.success(f"Sesión iniciada: {empresa_nom.upper()}")
-            t1, t2, t3 = st.tabs(["📊 Historial de Guías", "🚛 Gestionar Flota", "🚪 Salir"])
+            st.divider()
+            st.success(f"Empresa: {empresa_nom.upper()}")
+            t1, t2, t3 = st.tabs(["📊 Historial de Guías", "🚛 Mi Flota", "🚪 Salir"])
             
             with t1:
                 mis_g = [g for g in st.session_state.db_guias if g['empresa'] == empresa_nom]
                 if mis_g:
                     df = pd.DataFrame(mis_g)
-                    st.dataframe(df.drop(columns=['foto']))
+                    st.dataframe(df.drop(columns=['foto'], errors='ignore'))
+                    
+                    # El botón de Excel que faltaba
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.drop(columns=['foto']).to_excel(writer, index=False)
-                    st.download_button("📥 Bajar Excel", output.getvalue(), f"{empresa_nom}.xlsx")
+                        df.drop(columns=['foto'], errors='ignore').to_excel(writer, index=False)
+                    st.download_button("📥 Descargar Reporte Excel", output.getvalue(), f"guias_{empresa_nom}.xlsx")
                 else:
-                    st.info("No hay guías registradas.")
+                    st.info("No hay guías para mostrar.")
 
             with t2:
-                p_cam = st.text_input("Patente").upper()
-                chofer = st.text_input("Nombre Chofer")
-                if st.button("Registrar Camión"):
-                    st.session_state.db_flota.append({"empresa": empresa_nom, "patente": p_cam, "conductor": chofer})
-                    st.success("Añadido.")
+                # AQUÍ EL TRANSPORTISTA CREA AL CONDUCTOR
+                st.subheader("Registrar Nuevo Camión y Conductor")
+                pat_n = st.text_input("Patente (Ej: AB1234)").upper()
+                con_n = st.text_input("Nombre del Conductor")
+                if st.button("Guardar en Flota"):
+                    st.session_state.db_flota.append({"empresa": empresa_nom, "patente": pat_n, "conductor": con_n})
+                    st.success(f"Camión {pat_n} registrado correctamente.")
 
             with t3:
                 if st.button("Cerrar Sesión"):
                     st.session_state[f'active_{empresa_nom}'] = False
                     st.rerun()
 
-# --- VISTA: CONDUCTOR ---
+# --- VISTA: CONDUCTOR (ACCESO LIBRE) ---
 elif perfil == "Conductor":
-    st.title("🚛 Envío de Guía")
+    st.title("🚛 Envío de Guía de Despacho")
     pat_c = st.text_input("Patente del Camión").upper()
-    archivo = st.file_uploader("Foto de la Guía", type=['jpg', 'png'])
-    if st.button("🚀 Enviar a mi Empresa"):
+    archivo = st.file_uploader("Foto de la Guía", type=['jpg', 'png', 'jpeg'])
+    
+    if st.button("Enviar Guía"):
         if pat_c and archivo:
+            # Buscar a qué empresa pertenece la patente automáticamente
             emp = next((f['empresa'] for f in st.session_state.db_flota if f['patente'] == pat_c), "Independiente")
             st.session_state.db_guias.append({
                 "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -104,39 +102,26 @@ elif perfil == "Conductor":
                 "patente": pat_c,
                 "foto": archivo.read()
             })
-            st.success(f"Guía enviada a {emp}.")
+            st.success(f"Guía enviada con éxito a {emp}.")
 
-# --- VISTA: ADMINISTRADOR (TU PANEL) ---
+# --- VISTA: ADMINISTRADOR (TU PANEL PARA VER TODO) ---
 elif perfil == "Administrador de la App":
-    st.title("🛡️ Panel Maestro de Control")
-    if not st.session_state.admin_auth:
-        c_adm = st.text_input("Clave Maestra", type="password")
-        if st.button("Entrar"):
-            if c_adm == st.session_state.admin_pass:
-                st.session_state.admin_auth = True
-                st.rerun()
-    else:
-        # AQUÍ ES DONDE VES TODO
-        tab1, tab2 = st.tabs(["👥 Usuarios y Claves", "🚛 Inventario de Flotas"])
+    st.title("🛡️ Panel Maestro")
+    c_maestra = st.text_input("Clave Maestra", type="password")
+    
+    if c_maestra == st.session_state.admin_pass:
+        st.session_state.admin_auth = True
+        tab_a, tab_b = st.tabs(["👥 Usuarios", "🚛 Flotas Globales"])
         
-        with tab1:
-            st.write("### Transportistas Registrados")
-            if st.session_state.db_usuarios:
-                for emp, info in st.session_state.db_usuarios.items():
-                    st.info(f"EMPRESA: **{emp.upper()}** | CLAVE: **{info['clave']}** | CORREO: {info['correo']}")
-            else:
-                st.write("No hay usuarios aún.")
-
-        with tab2:
-            st.write("### Camiones por Transportista")
+        with tab_a:
+            st.write("### Claves de Empresas")
+            st.json(st.session_state.db_usuarios)
+            
+        with tab_b:
+            st.write("### Todos los Camiones Registrados")
             if st.session_state.db_flota:
-                df_adm = pd.DataFrame(st.session_state.db_flota)
-                # Resumen rápido
-                st.write("**Total de camiones en el sistema:**", len(df_adm))
-                st.table(df_adm)
+                st.table(pd.DataFrame(st.session_state.db_flota))
             else:
-                st.write("No hay camiones registrados.")
-        
-        if st.button("Cerrar Sesión de Administrador"):
-            st.session_state.admin_auth = False
-            st.rerun()
+                st.info("No hay camiones en la base de datos.")
+    elif c_maestra != "":
+        st.error("Clave maestra incorrecta.")
