@@ -1,98 +1,107 @@
 import streamlit as st
 import pandas as pd
+import sqlite3
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 
-# --- CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(page_title="LOGÍSTICA GLOBAL", layout="wide")
 
-# --- CONEXIÓN A GOOGLE SHEETS (Persistencia Total) ---
-# Esto asegura que la patente que anota el transportista quede grabada para siempre
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- BASE DE DATOS (MECANISMO DE SEGURIDAD) ---
+def init_db():
+    conn = sqlite3.connect('logistica_sistema.db', check_same_thread=False)
+    c = conn.cursor()
+    # Tabla de Empresas/Transportistas
+    c.execute('CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY, nombre TEXT, pin TEXT)')
+    # Tabla de Flota
+    c.execute('CREATE TABLE IF NOT EXISTS flota (patente TEXT PRIMARY KEY, conductor TEXT, empresa_id INTEGER)')
+    # Tabla de Guías
+    c.execute('CREATE TABLE IF NOT EXISTS guias (fecha TEXT, patente TEXT, conductor TEXT, empresa_id INTEGER)')
+    conn.commit()
+    return conn
 
-def obtener_datos(tabla):
-    return conn.read(worksheet=tabla)
+conn = init_db()
+c = conn.cursor()
 
-def guardar_dato(tabla, nuevo_df):
-    df_existente = obtener_datos(tabla)
-    df_final = pd.concat([df_existente, nuevo_df], ignore_index=True)
-    conn.update(worksheet=tabla, data=df_final)
+# --- ESTADO DE SESIÓN ---
+if 'empresa_id' not in st.session_state:
+    st.session_state['empresa_id'] = None
 
-# --- ESTILO ---
-st.markdown("""
-    <style>
-    .stButton>button { width: 100%; background-color: #1f4e79; color: white; height: 3em; }
-    .main { background-color: #f0f2f6; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- NAVEGACIÓN ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("🚛 LOGÍSTICA GLOBAL")
-    rol = st.selectbox("Perfil de Acceso", ["Inicio", "Conductor", "Transportista", "Dueño App"])
-    st.divider()
-    st.write("**Estado:** Conectado a Base de Datos")
+    opcion = st.selectbox("Perfil de Usuario", ["Inicio", "Conductor", "Transportista", "Dueño App"])
+    if st.session_state['empresa_id'] and st.button("Cerrar Sesión"):
+        st.session_state['empresa_id'] = None
+        st.rerun()
 
-# --- LÓGICA DE PANTALLAS ---
+# --- PANTALLAS ---
 
-if rol == "Inicio":
-    st.header("Bienvenido a LOGÍSTICA GLOBAL")
-    st.image("https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1200&q=80")
-    st.info("Plataforma de gestión de transporte. Los datos registrados aquí son permanentes.")
+if opcion == "Inicio":
+    st.header("Plataforma de Control Logístico")
+    st.image("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80")
+    st.info("Seleccione su perfil para ingresar al sistema.")
 
-elif rol == "Conductor":
-    st.header("📲 Reporte de Conductor")
-    pat_ingreso = st.text_input("Ingrese la Patente").strip().upper()
-    
-    if pat_ingreso:
-        # Buscamos en la hoja de Google directamente
-        df_flota = obtener_datos("Flota")
-        match = df_flota[df_flota['patente'] == pat_ingreso]
-        
-        if not match.empty:
-            nombre_c = match.iloc[0]['conductor']
+elif opcion == "Conductor":
+    st.header("📲 Acceso Conductor")
+    p_ingreso = st.text_input("Ingrese la Patente del Camión").strip().upper()
+    if p_ingreso:
+        c.execute("SELECT conductor, empresa_id FROM flota WHERE patente = ?", (p_ingreso,))
+        res = c.fetchone()
+        if res:
+            nombre_c, emp_id = res
             st.success(f"✅ Bienvenido, {nombre_c}")
-            archivo = st.file_uploader("Subir foto de Guía", type=['jpg', 'png', 'jpeg'])
-            if st.button("ENVIAR REPORTE FINAL"):
-                if archivo:
-                    nueva_guia = pd.DataFrame({
-                        "fecha": [datetime.now().strftime("%d/%m/%Y %H:%M")],
-                        "patente": [pat_ingreso],
-                        "conductor": [nombre_c]
-                    })
-                    guardar_dato("Guias", nueva_guia)
+            foto = st.file_uploader("Subir foto de Guía", type=['jpg','png','jpeg'])
+            if st.button("ENVIAR REPORTE"):
+                if foto:
+                    fecha_n = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    c.execute("INSERT INTO guias VALUES (?,?,?,?)", (fecha_n, p_ingreso, nombre_c, emp_id))
+                    conn.commit()
                     st.balloons()
-                    st.success("Información enviada con éxito.")
-                else: st.warning("Por favor, suba la foto de la guía.")
-        else:
-            st.error("❌ Patente NO registrada en el sistema. Avise a su transportista.")
+                    st.success("Información enviada correctamente.")
+                else: st.warning("Suba la foto antes de enviar.")
+        else: st.error("❌ Patente no encontrada. Su transportista debe registrarlo primero.")
 
-elif rol == "Transportista":
-    st.header("🏢 Panel Administrativo")
-    t1, t2 = st.tabs(["Inscribir Camión", "Ver Reportes"])
-    
-    with t1:
-        with st.form("registro_flota"):
-            p = st.text_input("Patente del Equipo").strip().upper()
-            n = st.text_input("Nombre del Conductor").strip()
-            if st.form_submit_button("REGISTRAR"):
-                if p and n:
-                    nuevo_registro = pd.DataFrame({"patente": [p], "conductor": [n]})
-                    guardar_dato("Flota", nuevo_registro)
-                    st.success(f"Guardado: {n} en {p}")
-                else: st.error("Complete ambos campos.")
+elif opcion == "Transportista":
+    if not st.session_state['empresa_id']:
+        st.header("🏢 Ingreso Empresa")
+        # Para la prueba, si no hay empresas, permitimos crear una rápido
+        nombre_e = st.text_input("Nombre de Empresa")
+        pin_e = st.text_input("PIN de Acceso", type="password")
+        if st.button("Entrar / Registrar"):
+            c.execute("SELECT id FROM empresas WHERE nombre = ? AND pin = ?", (nombre_e, pin_e))
+            emp = c.fetchone()
+            if emp:
+                st.session_state['empresa_id'] = emp[0]
+                st.rerun()
+            else:
+                c.execute("INSERT INTO empresas (nombre, pin) VALUES (?,?)", (nombre_e, pin_e))
+                conn.commit()
+                st.success("Empresa registrada. Pulse entrar nuevamente.")
+    else:
+        st.header(f"Panel Administrativo")
+        t1, t2 = st.tabs(["📋 Registro de Flota", "📊 Reporte de Guías"])
+        with t1:
+            with st.form("reg_flota"):
+                pat = st.text_input("Patente").strip().upper()
+                nom = st.text_input("Nombre del Conductor")
+                if st.form_submit_button("GUARDAR EN FLOTA"):
+                    if pat and nom:
+                        c.execute("INSERT OR REPLACE INTO flota VALUES (?,?,?)", (pat, nom, st.session_state['empresa_id']))
+                        conn.commit()
+                        st.success(f"Registrado: {nom}")
+            st.write("### Su Flota Actual")
+            st.dataframe(pd.read_sql(f"SELECT patente, conductor FROM flota WHERE empresa_id={st.session_state['empresa_id']}", conn))
+        with t2:
+            st.write("### Guías Recibidas")
+            st.dataframe(pd.read_sql(f"SELECT fecha, patente, conductor FROM guias WHERE empresa_id={st.session_state['empresa_id']}", conn))
 
-    with t2:
-        st.write("### Historial de Guías")
-        df_guias = obtener_datos("Guias")
-        st.dataframe(df_guias)
-
-elif rol == "Dueño App":
+elif opcion == "Dueño App":
     st.header("🔑 Control Maestro")
-    pin = st.text_input("PIN Maestro", type="password")
-    if pin == "998877":
-        st.write("### Auditoría Total")
-        st.write("**Empresas y Flota:**")
-        st.dataframe(obtener_datos("Flota"))
-        st.write("**Todos los Viajes:**")
-        st.dataframe(obtener_datos("Guias"))
+    if st.text_input("PIN Maestro", type="password") == "998877":
+        st.write("### Auditoría Global")
+        st.write("Empresas:")
+        st.dataframe(pd.read_sql("SELECT * FROM empresas", conn))
+        st.write("Flota Global:")
+        st.dataframe(pd.read_sql("SELECT * FROM flota", conn))
+        st.write("Viajes Totales:")
+        st.dataframe(pd.read_sql("SELECT * FROM guias", conn))
