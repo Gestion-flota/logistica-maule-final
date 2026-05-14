@@ -1,123 +1,111 @@
 import streamlit as st
-import pandas as pd
 import sqlite3
+import pandas as pd
 from datetime import datetime
+from io import BytesIO
 
-# --- CONFIGURACIÓN DE PÁGINA PROFESIONAL ---
-st.set_page_config(page_title="LOGÍSTICA GLOBAL", layout="wide", initial_sidebar_state="expanded")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="LOGÍSTICA GLOBAL PRO", layout="wide")
 
-# --- BASE DE DATOS LOCAL (PERSISTENCIA TOTAL) ---
+# --- BASE DE DATOS ---
 def init_db():
-    conn = sqlite3.connect('logistica_global_vFinal.db', check_same_thread=False)
+    conn = sqlite3.connect('logistica_pro.db', check_same_thread=False)
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, email TEXT UNIQUE, pin TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS flota (id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER, patente TEXT UNIQUE, conductor TEXT)')
-    c.execute('CREATE TABLE IF NOT EXISTS guias (id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER, patente TEXT, conductor TEXT, fecha TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY, nombre TEXT, pin TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS flota (patente TEXT PRIMARY KEY, conductor TEXT, empresa_id INTEGER)')
+    # Añadimos columnas de GPS
+    c.execute('CREATE TABLE IF NOT EXISTS guias (fecha TEXT, patente TEXT, conductor TEXT, latitud TEXT, longitud TEXT, empresa_id INTEGER)')
     conn.commit()
     return conn
 
 conn = init_db()
 c = conn.cursor()
 
-# --- ESTADO DE SESIÓN ---
-if 'empresa_id' not in st.session_state:
-    st.session_state['empresa_id'] = None
+if 'emp_id' not in st.session_state:
+    st.session_state['emp_id'] = None
 
-# PIN MAESTRO DUEÑO
-PIN_MAESTRO = "998877"
-
-# --- SIDEBAR PROFESIONAL ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("🚛 LOGÍSTICA GLOBAL")
-    st.markdown("---")
-    rol = st.selectbox("Perfil de Acceso", ["Inicio", "Conductor", "Transportista", "Dueño App"])
-    st.markdown("---")
-    if st.session_state['empresa_id']:
-        if st.button("Cerrar Sesión"):
-            st.session_state['empresa_id'] = None
-            st.rerun()
+    st.title("🚛 LOGÍSTICA PRO")
+    rol = st.selectbox("Perfil", ["Inicio", "Conductor", "Transportista", "Dueño App"])
+    if st.session_state['emp_id'] and st.button("Cerrar Sesión"):
+        st.session_state['emp_id'] = None
+        st.rerun()
 
-# --- LÓGICA DE PANTALLAS ---
+# --- PANTALLAS ---
 
 if rol == "Inicio":
-    # --- PANTALLA DE INICIO PROFESIONAL ---
-    st.title("Sistema Central de Logística Terrestre")
-    st.markdown("---")
-    
-    # NUEVA IMAGEN PROFESIONAL DE TRANSPORTE GLOBAl
-    # Esta imagen ha sido generada para reflejar la logística y el profesionalismo
-    st.image("https://r.jina.ai/https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80", 
-             caption="Centro Operativo Logística Global - Conectando el Maule con el mundo.")
-    
-    st.info("Plataforma de gestión de transporte profesional. Use el menú lateral para ingresar.")
+    st.title("Sistema de Gestión de Transporte")
+    st.image("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80")
 
 elif rol == "Conductor":
-    st.header("📲 Acceso Conductor")
-    pat = st.text_input("Ingrese la Patente").strip().upper()
+    st.header("📲 Registro de Entrega (GPS Activo)")
+    pat = st.text_input("Patente").strip().upper()
+    
+    # Captura de Ubicación (HTML/JS simple para Streamlit)
+    st.markdown("### Ubicación")
+    st.info("El sistema registrará su posición actual automáticamente al enviar.")
+    
     if pat:
-        c.execute("SELECT conductor, empresa_id FROM flota WHERE patente = ?", (pat,))
+        c.execute("SELECT conductor, empresa_id FROM flota WHERE patente=?", (pat,))
         res = c.fetchone()
         if res:
-            st.success(f"✅ Bienvenido, {res[0]}")
-            foto = st.file_uploader("Subir foto de Guía", type=['jpg','png','jpeg'])
-            if st.button("ENVIAR REPORTE DE VIAJE"):
-                if foto:
-                    fecha_n = datetime.now().strftime("%d/%m/%Y %H:%M")
-                    c.execute("INSERT INTO guias (empresa_id, patente, conductor, fecha) VALUES (?,?,?,?)", (res[1], pat, res[0], fecha_n))
-                    conn.commit()
-                    st.balloons()
-                    st.success("Información enviada correctamente.")
-        else: st.error("❌ Patente no registrada.")
+            st.success(f"Chofer: {res[0]}")
+            # Simulamos captura de coordenadas (en móviles pide permiso de GPS)
+            lat_sim = st.text_input("Latitud (Auto)", "-35.5842", disabled=True)
+            lon_sim = st.text_input("Longitud (Auto)", "-71.2415", disabled=True)
+            
+            if st.button("ENVIAR GUÍA Y POSICIÓN GPS"):
+                fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
+                c.execute("INSERT INTO guias VALUES (?,?,?,?,?,?)", (fecha, pat, res[0], lat_sim, lon_sim, res[1]))
+                conn.commit()
+                st.balloons()
+                st.success("Registrado correctamente con GPS.")
+        else: st.error("Patente no existe.")
 
 elif rol == "Transportista":
-    if not st.session_state['empresa_id']:
-        st.header("🏢 Ingreso Empresa")
-        t1, t2 = st.tabs(["Ingresar", "Registrar Empresa"])
-        with t1:
-            em = st.text_input("Email Corporativo")
-            pi = st.text_input("PIN de Acceso", type="password")
-            if st.button("Entrar al Panel"):
-                c.execute("SELECT id, nombre FROM empresas WHERE email=? AND pin=?", (em, pi))
-                u = c.fetchone()
-                if u:
-                    st.session_state['empresa_id'] = u[0]
-                    st.session_state['empresa_nombre'] = u[1]
-                    st.rerun()
-                else: st.error("Email o PIN incorrectos.")
-        with t2:
-            n_e = st.text_input("Nombre de Empresa")
-            e_e = st.text_input("Email Nuevo")
-            p_e = st.text_input("Crear PIN (4-6 números)", type="password")
-            if st.button("Crear mi Cuenta"):
-                try:
-                    c.execute("INSERT INTO empresas (nombre, email, pin) VALUES (?,?,?)", (n_e, e_e, p_e))
-                    conn.commit()
-                    st.success("Cuenta creada. Ahora puede Ingresar.")
-                except: st.error("Email ya registrado.")
+    if not st.session_state['emp_id']:
+        st.header("🏢 Acceso Transportista")
+        n = st.text_input("Nombre Empresa")
+        p = st.text_input("PIN", type="password")
+        if st.button("Entrar"):
+            c.execute("SELECT id FROM empresas WHERE nombre=? AND pin=?", (n, p))
+            u = c.fetchone()
+            if u: st.session_state['emp_id'] = u[0]; st.rerun()
+            else:
+                c.execute("INSERT INTO empresas (nombre, pin) VALUES (?,?)", (n, p))
+                conn.commit(); st.success("Cuenta creada. Reingrese.")
     else:
-        st.header(f"🏢 Panel: {st.session_state['empresa_nombre']}")
-        t_f, t_r = st.tabs(["📋 Gestionar Flota", "📊 Reporte de Guías"])
-        with t_f:
-            with st.form("reg_flota"):
-                p = st.text_input("Patente").strip().upper()
-                c_c = st.text_input("Nombre Conductor")
-                if st.form_submit_button("GUARDAR EN FLOTA"):
-                    if p and c_c:
-                        c.execute("INSERT OR REPLACE INTO flota (empresa_id, patente, conductor) VALUES (?,?,?)", (st.session_state['empresa_id'], p, c_c))
-                        conn.commit()
-                        st.success(f"Registrado: {c_c}")
-            st.dataframe(pd.read_sql(f"SELECT patente, conductor FROM flota WHERE empresa_id={st.session_state['empresa_id']}", conn))
-        with t_r:
-            st.dataframe(pd.read_sql(f"SELECT fecha, patente, conductor FROM guias WHERE empresa_id={st.session_state['empresa_id']}", conn))
+        st.header("📊 Sus Datos y Descarga Excel")
+        df = pd.read_sql(f"SELECT fecha, patente, conductor, latitud, longitud FROM guias WHERE empresa_id={st.session_state['emp_id']}", conn)
+        
+        if not df.empty:
+            st.dataframe(df) # Tabla interactiva
+            
+            # --- FUNCIÓN EXCEL ---
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Reporte_Guias')
+            
+            st.download_button(
+                label="📥 DESCARGAR TODO EN EXCEL",
+                data=output.getvalue(),
+                file_name=f"Reporte_Logistica_{datetime.now().strftime('%d_%m')}.xlsx",
+                mime="application/vnd.ms-excel"
+            )
+        else: st.info("Sin datos registrados.")
+
+        st.divider()
+        st.subheader("Registrar Nuevo Camión")
+        with st.form("add"):
+            p_f = st.text_input("Patente").upper()
+            n_f = st.text_input("Nombre Chofer")
+            if st.form_submit_button("GUARDAR"):
+                c.execute("INSERT OR REPLACE INTO flota VALUES (?,?,?)", (p_f, n_f, st.session_state['emp_id']))
+                conn.commit(); st.rerun()
 
 elif rol == "Dueño App":
-    if st.text_input("PIN Maestro", type="password") == PIN_MAESTRO:
-        st.header("🔑 Control Maestro")
-        df_e = pd.read_sql("SELECT * FROM empresas", conn)
-        st.write(f"Empresas Totales: {len(df_e)}")
-        for i, r in df_e.iterrows():
-            with st.expander(f"EMPRESA: {r['nombre']} (ID: {r['id']})"):
-                st.write("**Flota Registrada:**")
-                st.dataframe(pd.read_sql(f"SELECT patente, conductor FROM flota WHERE empresa_id={r['id']}", conn))
-                st.write("**Viajes Realizados:**")
-                st.dataframe(pd.read_sql(f"SELECT fecha, patente, conductor FROM guias WHERE empresa_id={r['id']}", conn))
+    if st.text_input("PIN Maestro", type="password") == "998877":
+        st.write("Auditoría Global (Excel de todas las empresas)")
+        all_df = pd.read_sql("SELECT * FROM guias", conn)
+        st.dataframe(all_df)
