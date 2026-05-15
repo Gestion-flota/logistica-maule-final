@@ -8,7 +8,8 @@ import random
 # ==========================================
 # 1. CONFIGURACIÓN DE ALMACENAMIENTO SEGURO
 # ==========================================
-DB_FILE = "sistema_flota.db"
+# Cambiamos el nombre del archivo a v2 para forzar un inicio limpio, seguro y sin errores de columnas faltantes
+DB_FILE = "sistema_flota_v2.db"
 CARPETA_IMAGENES = "guias_guardadas"
 
 if not os.path.exists(CARPETA_IMAGENES):
@@ -17,14 +18,14 @@ if not os.path.exists(CARPETA_IMAGENES):
 st.set_page_config(page_title="Gestión Administrativa de Flota", layout="wide")
 
 # ==========================================
-# 2. MOTOR DE BASE DE DATOS (CON PARCHE AUTOMÁTICO)
+# 2. MOTOR DE BASE DE DATOS (ESTRUCTURA DE PRODUCCIÓN)
 # ==========================================
 def inicializar_base_datos():
-    """Crea las tablas y aplica parches si el archivo .db es antiguo."""
+    """Crea la estructura relacional limpia y sin fallos desde cero."""
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         
-        # TABLA 1: Transportistas
+        # TABLA 1: Transportistas (Empresas dueñas)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS transportistas (
                 pin TEXT PRIMARY KEY,
@@ -32,15 +33,17 @@ def inicializar_base_datos():
             )
         ''')
         
-        # TABLA 2: Conductores
+        # TABLA 2: Conductores (Enlazados correctamente al transportista)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS conductores (
                 patente TEXT PRIMARY KEY,
-                nombre TEXT NOT NULL
+                nombre TEXT NOT NULL,
+                transportista_pin TEXT NOT NULL,
+                FOREIGN KEY(transportista_pin) REFERENCES transportistas(pin)
             )
         ''')
         
-        # TABLA 3: Reportes
+        # TABLA 3: Reportes de Viajes, Imágenes y GPS
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS reportes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,27 +52,17 @@ def inicializar_base_datos():
                 conductor TEXT NOT NULL,
                 lat REAL NOT NULL,
                 lon REAL NOT NULL,
-                guia_ref TEXT NOT NULL
+                guia_ref TEXT NOT NULL,
+                transportista_pin TEXT NOT NULL,
+                FOREIGN KEY(transportista_pin) REFERENCES transportistas(pin)
             )
         ''')
         conn.commit()
 
-        # 🔥 PARCHE DE ACTUALIZACIÓN: Forzar la inserción de columnas si la BD era vieja
-        try:
-            cursor.execute("ALTER TABLE conductores ADD COLUMN transportista_pin TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass # Si ya existía la columna, no hace nada
-
-        try:
-            cursor.execute("ALTER TABLE reportes ADD COLUMN transportista_pin TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass # Si ya existía la columna, no hace nada
-
+# Forzamos la inicialización limpia del sistema
 inicializar_base_datos()
 
-# --- OPERACIONES DE CAPA DE DATOS ---
+# --- FUNCIONES DE BASE DE DATOS ---
 
 def registrar_transportista(empresa, pin):
     try:
@@ -134,7 +127,7 @@ def obtener_conductores_por_transportista(transportista_pin):
     return df
 
 # ==========================================
-# 3. INTERFAZ GRÁFICA
+# 3. INTERFAZ GRÁFICA DE USUARIO
 # ==========================================
 st.title("🚚 Sistema Autónomo de Gestión de Flotas y Guías")
 
@@ -178,19 +171,19 @@ elif rol == "Transportista":
     if modo_acceso == "Soy nuevo y quiero crear mi PIN":
         st.subheader("🔑 Registro Único de Transportista")
         nueva_empresa = st.text_input("Nombre de su Empresa de Transportes:")
-        nuevo_pin = st.text_input("Asigne su PIN Secreto:", type="password")
+        nuevo_pin = st.text_input("Asigne su PIN Secreto (Memorícelo):", type="password")
         
         if st.button("Crear mi cuenta permanente"):
             if nueva_empresa and nuevo_pin:
                 if registrar_transportista(nueva_empresa, nuevo_pin):
-                    st.success(f"🎉 ¡Empresa '{nueva_empresa}' registrada! Cambie a la opción 'Tengo un PIN creado'.")
+                    st.success(f"🎉 ¡Empresa '{nueva_empresa}' registrada con éxito! Seleccione la opción 'Tengo un PIN creado' para empezar.")
                 else:
                     st.error("Este PIN ya está en uso. Use uno diferente.")
             else:
                 st.warning("Debe rellenar ambos campos.")
                 
     elif modo_acceso == "Tengo un PIN creado":
-        pin_ingreso = st.text_input("Ingrese su PIN de Seguridad:", type="password")
+        pin_ingreso = st.text_input("Ingrese su PIN de Seguridad para acceder a su flota:", type="password")
         
         if pin_ingreso:
             nombre_empresa = verificar_transportista(pin_ingreso)
@@ -200,21 +193,22 @@ elif rol == "Transportista":
                 
                 menu_tab = st.tabs(["🚛 Mi Flota (Crear Camiones)", "📋 Mis Reportes Diarios", "🗺️ Mapa Satelital GPS"])
                 
+                # Gestión de Camiones
                 with menu_tab[0]:
                     st.subheader("➕ Añadir Camión a mi Flota")
                     c1, c2 = st.columns(2)
                     with c1:
                         nom_chofer = st.text_input("Nombre del Conductor:")
                     with c2:
-                        pat_chofer = st.text_input("Patente (ABCD12):", max_chars=7).upper().strip()
+                        pat_chofer = st.text_input("Patente (Ej: ABCD12):", max_chars=7).upper().strip()
                         
                     if st.button("Habilitar en mi Flota"):
                         if nom_chofer and pat_chofer:
                             if registrar_conductor(nom_chofer, pat_chofer, pin_ingreso):
-                                st.success(f"Vehículo [{pat_chofer}] agregado.")
+                                st.success(f"Vehículo [{pat_chofer}] agregado exitosamente.")
                                 st.rerun()
                             else:
-                                st.error("Esta patente ya está asignada.")
+                                st.error("Esta patente ya está asignada a un camión en el sistema.")
                         else:
                             st.warning("Complete ambos datos.")
                             
@@ -223,8 +217,9 @@ elif rol == "Transportista":
                     df_camiones = obtener_conductores_por_transportista(pin_ingreso)
                     st.dataframe(df_camiones, use_container_width=True, hide_index=True)
                 
+                # Reportes e Imágenes
                 with menu_tab[1]:
-                    st.subheader("📋 Historial de Guías")
+                    st.subheader("📋 Historial de Guías Recibidas")
                     df_rep = obtener_reportes_por_transportista(pin_ingreso)
                     
                     if not df_rep.empty:
@@ -240,47 +235,45 @@ elif rol == "Transportista":
                         
                         st.write("---")
                         st.subheader("🔍 Visor de Documentos")
-                        id_sel = st.selectbox("Seleccione ID del Reporte:", df_rep["id"].unique())
+                        id_sel = st.selectbox("Seleccione ID del Reporte para inspeccionar:", df_rep["id"].unique())
                         info_fila = df_rep[df_rep["id"] == id_sel].iloc[0]
                         ruta_foto = os.path.join(CARPETA_IMAGENES, info_fila["guia_ref"])
                         
                         if os.path.exists(ruta_foto):
                             st.image(ruta_foto, caption=f"Guía - Camión {info_fila['patente']}", width=550)
                         else:
-                            st.error("Archivo no encontrado.")
+                            st.error("Archivo de imagen no encontrado en el servidor.")
                     else:
-                        st.info("Sin guías reportadas hoy.")
+                        st.info("Sin guías reportadas hoy para esta flota.")
                         
+                # Mapa Satelital
                 with menu_tab[2]:
-                    st.subheader("🗺️ Monitoreo Satelital GPS")
+                    st.subheader("🗺️ Monitoreo Satelital GPS (Tiempo Real)")
                     df_rep = obtener_reportes_por_transportista(pin_ingreso)
                     if not df_rep.empty:
                         st.map(df_rep[['lat', 'lon']].dropna())
                     else:
-                        st.info("Sin ubicaciones registradas hoy.")
+                        st.info("Sin ubicaciones registradas el día de hoy.")
             else:
-                st.error("❌ PIN no registrado.")
+                st.error("❌ PIN no registrado o incorrecto.")
 
 # ------------------------------------------
-# MÓDULO 3: PANEL ADMINISTRADOR
+# MÓDULO 3: PANEL ADMINISTRADOR (TÚ)
 # ------------------------------------------
 elif rol == "Panel Administrador (Tú)":
     st.header("🛠️ Métricas Globales de la Aplicación")
+    st.write("Control de volumen comercial y camiones activos por cliente.")
     
     with sqlite3.connect(DB_FILE) as conn:
         tx_totales = conn.execute("SELECT COUNT(*) FROM transportistas").fetchone()[0]
-        # Validar si existe la columna para evitar errores de conteo en la transición
-        try:
-            camiones_totales = conn.execute("SELECT COUNT(*) FROM conductores").fetchone()[0]
-            df_admin = pd.read_sql_query('''
-                SELECT t.empresa as 'Empresa Transportista', COUNT(c.patente) as 'Cantidad de Camiones Activos'
-                FROM transportistas t
-                LEFT JOIN conductores c ON t.pin = c.transportista_pin
-                GROUP BY t.pin
-            ''', conn)
-        except sqlite3.OperationalError:
-            camiones_totales = 0
-            df_admin = pd.DataFrame(columns=['Empresa Transportista', 'Cantidad de Camiones Activos'])
+        camiones_totales = conn.execute("SELECT COUNT(*) FROM conductores").fetchone()[0]
+        
+        df_admin = pd.read_sql_query('''
+            SELECT t.empresa as 'Empresa Transportista', COUNT(c.patente) as 'Cantidad de Camiones Activos'
+            FROM transportistas t
+            LEFT JOIN conductores c ON t.pin = c.transportista_pin
+            GROUP BY t.pin
+        ''', conn)
     
     c1, c2 = st.columns(2)
     c1.metric(label="Clientes Transportistas", value=tx_totales)
