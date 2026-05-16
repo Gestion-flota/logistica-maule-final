@@ -199,9 +199,33 @@ elif rol == "Transportista":
             else: st.error("❌ PIN incorrecto.")
 
 elif rol == "Panel Administrador (Tú)":
-    st.header("🛠️ Métricas Globales")
+    st.header("🛠️ Panel Global del Administrador")
+    st.write("Visualización exclusiva de la escala del negocio por cliente.")
+    
     with sqlite3.connect(DB_FILE) as conn:
-        tx_totales = conn.execute("SELECT COUNT(*) FROM transportistas").fetchone()[0]
-        camiones_totales = conn.execute("SELECT COUNT(*) FROM conductores").fetchone()[0]
-    st.metric(label="Clientes Transportistas", value=tx_totales)
-    st.metric(label="Total Camiones Globales", value=camiones_totales)
+        # Consulta SQL avanzada para cruzar las empresas con la cantidad de patentes registradas
+        df_admin = pd.read_sql_query('''
+            SELECT t.empresa as 'Empresa Transportista', COUNT(c.patente) as 'Camiones Registrados'
+            FROM transportistas t
+            LEFT JOIN conductores c ON t.pin = c.transportista_pin
+            GROUP BY t.pin, t.empresa
+            ORDER BY COUNT(c.patente) DESC
+        ''', conn)
+        
+        # Calculamos los totales a partir de la tabla
+        tx_totales = len(df_admin)
+        camiones_totales = int(df_admin['Camiones Registrados'].sum()) if not df_admin.empty else 0
+        
+    # Mostramos los indicadores generales arriba
+    c1, c2 = st.columns(2)
+    c1.metric(label="Total de Clientes (Empresas)", value=tx_totales)
+    c2.metric(label="Total de Camiones en la App", value=camiones_totales)
+    
+    st.write("---")
+    st.write("### 📊 Detalle de Flotas por Empresa")
+    
+    # Mostramos la tabla limpia y profesional que pediste
+    if not df_admin.empty:
+        st.dataframe(df_admin, use_container_width=True, hide_index=True)
+    else:
+        st.info("Aún no hay empresas registradas en el sistema.")
